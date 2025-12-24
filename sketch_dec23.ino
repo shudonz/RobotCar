@@ -174,6 +174,7 @@ bool isStalled = false;
 long previousDistance = INVALID_DISTANCE;
 bool useShortBackup = false;  // Flag for shorter backup after failed turn
 int stuckCounter = 0;  // Track how many times we've been stuck
+bool wasStalled = false;  // Flag to indicate if we got stuck due to stall (vs seeing wall)
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -316,6 +317,7 @@ void loop() {
               Stop();
               autoState = MOVE_BACK;
               stateStart = now;
+              wasStalled = true;  // Mark that we're stuck due to stall (side wall likely)
             }
           } else {
             isStalled = false;
@@ -331,6 +333,7 @@ void loop() {
         Stop();
         autoState = MOVE_BACK;
         stateStart = now;
+        wasStalled = false;  // Not a stall, we saw a wall ahead
       }
     } break;
 
@@ -351,7 +354,13 @@ void loop() {
       
       // Increment stuck counter at start of scan
       // With threshold=0: extreme angles enforced immediately from 1st stuck cycle
-      stuckCounter++;
+      // If stalled (side wall), increment by 2 to be more aggressive
+      if (wasStalled) {
+        stuckCounter += 2;  // Double increment for stall - be VERY aggressive
+        wasStalled = false;  // Reset flag
+      } else {
+        stuckCounter++;
+      }
       
       long distances[5];
       int angles[5] = {0, 45, 90, 135, 180};
