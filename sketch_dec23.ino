@@ -117,6 +117,7 @@ void updateScroll() {
 #define BACKUP_TIME 1800        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
 #define MAX_BACKUP_ATTEMPTS 2   // Maximum consecutive backup attempts before forcing turn (prevents backing into obstacles)
+#define MAX_TURN_ONLY_ATTEMPTS 3 // Maximum consecutive turn-without-backup cycles before resetting backup limiter
 #define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
 #define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
 #define MAX_TURN_TIME 4500      // Increased timeout to safely accommodate longest turns (180° = ~3800ms)
@@ -346,33 +347,37 @@ void loop() {
     } break;
 
     case MOVE_BACK: {
-      // Check if we've backed up too many times (likely backing into obstacle)
+      // Check if we've backed up too many times (likely backing into rear obstacle)
       if (backupAttempts >= MAX_BACKUP_ATTEMPTS) {
         // Increment turn-only counter to detect stuck in turn-only loop
         turnOnlyAttempts++;
         
         // If we've been turning in place too many times without progress, reset backup counter
-        // This allows robot to back up again and break the turn-only loop
-        if (turnOnlyAttempts >= 3) {
+        // This detects the pattern: skip backup → turn → blocked → skip backup → turn → blocked...
+        // After MAX_TURN_ONLY_ATTEMPTS cycles, robot is clearly stuck in same spot turning left/right
+        // Reset allows backing up again to create physical space and break the oscillation pattern
+        if (turnOnlyAttempts >= MAX_TURN_ONLY_ATTEMPTS) {
           backupAttempts = 0;  // Reset to allow backing up again
           turnOnlyAttempts = 0;  // Reset turn-only counter
-          // Fall through to normal backup logic below
+          // Fall through to normal backup logic below - robot will now back up to create space
         } else {
-          // Skip backing up, go straight to turn
+          // Not stuck in turn loop yet, skip backing up and go straight to turn (as intended)
+          // This is the normal path when trying to avoid backing into rear obstacles
           Stop();
           autoState = SCAN;
           stateStart = now;
           useShortBackup = false;
-          break;
+          break;  // Exit here - backup skipped, will go to SCAN → TURN
         }
       }
       
+      // Normal backup logic (either backupAttempts < MAX or reset from turn-loop detection above)
       back();
       unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / SHORT_BACKUP_RATIO) : BACKUP_TIME;
       if (now - stateStart > backupDuration) {
         // Backup completed successfully
         backupAttempts++;  // Increment only after successful backup completion
-        turnOnlyAttempts = 0;  // Reset turn-only counter when we actually back up
+        turnOnlyAttempts = 0;  // Reset turn-only counter when we actually back up (not just turn)
         autoState = SCAN;
         stateStart = now;
         useShortBackup = false;  // Reset flag
