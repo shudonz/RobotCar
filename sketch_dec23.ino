@@ -113,7 +113,23 @@ void updateScroll() {
 #define LEFT_SPEED 100
 #define RIGHT_SPEED 100
 #define CLEAR_THRESHOLD 30
-#define MAX_TURN_TIME 3000
+#define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
+#define BACKUP_TIME 1800        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
+#define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
+#define MAX_BACKUP_ATTEMPTS 2   // Maximum consecutive backup attempts before forcing turn (prevents backing into obstacles)
+#define MAX_TURN_ONLY_ATTEMPTS 3 // Maximum consecutive turn-without-backup cycles before resetting backup limiter
+#define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
+#define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
+#define MAX_TURN_TIME 4500      // Increased timeout to safely accommodate longest turns (180° = ~3800ms)
+#define SCAN_CENTER_PENALTY 5   // MAXIMUM penalty - center angle almost impossible to select
+#define SCAN_SIDE_BONUS 250     // MAXIMUM bonus for side angles (250% of distance = 150% increase over baseline)
+                                // Note: Max calculation 400cm * 250% = 1000, safe for long type
+#define SCAN_INTERMEDIATE_PENALTY 30  // Even heavier penalty on intermediate angles
+#define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle
+#define PROGRESS_RESET_THRESHOLD 15  // Require MORE progress to reset stuck counter
+#define STALL_COUNTER_INCREMENT 3   // Triple increment for stalls - VERY aggressive
+#define EXTREME_ANGLE_LEFT 0    // Left extreme angle for drastic turns
+#define EXTREME_ANGLE_RIGHT 180 // Right extreme angle for drastic turns
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -152,12 +168,18 @@ bool autoMode = false;
 char driveCmd = 'S';
 
 /* ---------------- MOVE FORWARD STALL DETECTION ---------------- */
+#define INVALID_DISTANCE 999
+#define MOVE_CHECK_INTERVAL 200
+#define STALL_TIMEOUT 800
 unsigned long lastMoveCheck = 0;
 unsigned long stallStart = 0;
 bool isStalled = false;
-long previousDistance = 999;
-#define MOVE_CHECK_INTERVAL 200
-#define STALL_TIMEOUT 800
+long previousDistance = INVALID_DISTANCE;
+bool useShortBackup = false;  // Flag for shorter backup after failed turn
+int stuckCounter = 0;  // Track how many times we've been stuck
+bool wasStalled = false;  // Physical stall detection (robot stuck despite sensor showing clear) vs frontal obstacle
+int backupAttempts = 0;  // Track consecutive backup attempts to detect backing into obstacles
+int turnOnlyAttempts = 0;  // Track consecutive turn-without-backup cycles to detect stuck in turn loop
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -173,7 +195,7 @@ void bubbleSort(long arr[], int n) {
 }
 
 /* ---------------- AUTO STATE MACHINE ---------------- */
-enum AutoState {IDLE, MOVE_FORWARD, MOVE_BACK, SCAN, TURN_TO_CLEAR};
+enum AutoState {IDLE, MOVE_FORWARD, MOVE_BACK, SCAN, TURN_TO_CLEAR, TURN_VERIFY};
 AutoState autoState = IDLE;
 unsigned long stateStart = 0;
 int targetAngle = 90; // 0=left, 90=center, 180=right
@@ -279,6 +301,8 @@ void loop() {
       if (fDist > 30) {
         autoState = MOVE_FORWARD;
         front();
+        backupAttempts = 0;  // Reset backup attempts when starting fresh movement
+        turnOnlyAttempts = 0;  // Reset turn-only attempts when starting fresh
       } else {
         autoState = MOVE_BACK;
         stateStart = now;
@@ -300,9 +324,16 @@ void loop() {
               Stop();
               autoState = MOVE_BACK;
               stateStart = now;
+              wasStalled = true;  // Mark that we're stuck due to stall (side wall likely)
             }
           } else {
             isStalled = false;
+            // Reset stuck counter if robot is making progress
+            if (stuckCounter > 0 && currentDistance > previousDistance + PROGRESS_RESET_THRESHOLD) {
+              stuckCounter = 0;
+              backupAttempts = 0;  // Also reset backup attempts when making good progress
+              turnOnlyAttempts = 0;  // Also reset turn-only attempts when making progress
+            }
           }
           previousDistance = currentDistance;
           lastMoveCheck = now;
@@ -311,21 +342,63 @@ void loop() {
         Stop();
         autoState = MOVE_BACK;
         stateStart = now;
+        wasStalled = false;  // Not a stall, we saw a wall ahead
       }
     } break;
 
-    case MOVE_BACK:
+    case MOVE_BACK: {
+      // Check if we've backed up too many times (likely backing into rear obstacle)
+      if (backupAttempts >= MAX_BACKUP_ATTEMPTS) {
+        // Increment turn-only counter to detect stuck in turn-only loop
+        turnOnlyAttempts++;
+        
+        // If we've been turning in place too many times without progress, reset backup counter
+        // This detects the pattern: skip backup → turn → blocked → skip backup → turn → blocked...
+        // After MAX_TURN_ONLY_ATTEMPTS cycles, robot is clearly stuck in same spot turning left/right
+        // Reset allows backing up again to create physical space and break the oscillation pattern
+        if (turnOnlyAttempts >= MAX_TURN_ONLY_ATTEMPTS) {
+          backupAttempts = 0;  // Reset to allow backing up again
+          turnOnlyAttempts = 0;  // Reset turn-only counter
+          // Fall through to normal backup logic below - robot will now back up to create space
+        } else {
+          // Not stuck in turn loop yet, skip backing up and go straight to turn (as intended)
+          // This is the normal path when trying to avoid backing into rear obstacles
+          Stop();
+          autoState = SCAN;
+          stateStart = now;
+          useShortBackup = false;
+          break;  // Exit here - backup skipped, will go to SCAN → TURN
+        }
+      }
+      
+      // Normal backup logic (either backupAttempts < MAX or reset from turn-loop detection above)
       back();
-      if (now - stateStart > 700) {
+      unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / SHORT_BACKUP_RATIO) : BACKUP_TIME;
+      if (now - stateStart > backupDuration) {
+        // Backup completed successfully
+        backupAttempts++;  // Increment only after successful backup completion
+        turnOnlyAttempts = 0;  // Reset turn-only counter when we actually back up (not just turn)
         autoState = SCAN;
         stateStart = now;
+        useShortBackup = false;  // Reset flag
         Stop();
       }
-      break;
+    } break;
 
     case SCAN: {
       Stop();
       delay(200);
+      
+      // Increment stuck counter at start of scan
+      // With threshold=0: extreme angles enforced immediately from 1st stuck cycle
+      // If stalled (physical obstruction), use aggressive increment to force drastic turns
+      if (wasStalled) {
+        stuckCounter += STALL_COUNTER_INCREMENT;  // Aggressive increment for stalls
+        wasStalled = false;  // Reset flag
+      } else {
+        stuckCounter++;  // Normal increment for frontal obstacles
+      }
+      
       long distances[5];
       int angles[5] = {0, 45, 90, 135, 180};
       for (int i = 0; i < 5; i++) {
@@ -333,32 +406,135 @@ void loop() {
         delay(150);
         distances[i] = frontDistance();
       }
-      int maxIndex = 0;
-      for (int i = 1; i < 5; i++) {
-        if (distances[i] > distances[maxIndex]) maxIndex = i;
+      
+      // Apply VERY aggressive weighted scoring to force extreme turns
+      long scores[5];
+      int maxIndex = -1;
+      long maxScore = -1;
+      
+      for (int i = 0; i < 5; i++) {
+        scores[i] = distances[i];
+        
+        // VERY heavily penalize center angle (90°) - never go back to wall
+        if (i == 2) {
+          scores[i] = scores[i] * SCAN_CENTER_PENALTY / 100;
+        }
+        // When stuck multiple times, also penalize intermediate angles heavily
+        // Force robot to pick extreme angles (0° or 180°) for drastic direction change
+        else if ((i == 1 || i == 3) && stuckCounter > STUCK_THRESHOLD_FOR_EXTREME_ANGLES) {
+          scores[i] = scores[i] * SCAN_INTERMEDIATE_PENALTY / 100;
+        }
+        // VERY strong bonus to extreme angles for drastic turns
+        else if (i == 0 || i == 4) {
+          scores[i] = scores[i] * SCAN_SIDE_BONUS / 100;
+        }
+        
+        // Only consider directions with reasonable clearance
+        if (distances[i] >= MIN_CLEAR_DISTANCE && scores[i] > maxScore) {
+          maxScore = scores[i];
+          maxIndex = i;
+        }
       }
+      
+      // If no direction has sufficient clearance, pick extreme angle with most space
+      // Completely exclude center and intermediate angles when stuck
+      if (maxIndex == -1) {
+        // When stuck, ONLY consider extreme angles (0° or 180°)
+        if (stuckCounter > STUCK_THRESHOLD_FOR_EXTREME_ANGLES) {
+          if (scores[0] > scores[4]) {
+            maxIndex = 0;  // Hard left
+          } else {
+            maxIndex = 4;  // Hard right
+          }
+        } else {
+          // First time stuck, allow non-center angles
+          for (int i = 0; i < 5; i++) {
+            if (i != 2 && scores[i] > maxScore) {
+              maxScore = scores[i];
+              maxIndex = i;
+            }
+          }
+        }
+      }
+      
+      // Failsafe: if still no valid direction, alternate between hard left and hard right
+      if (maxIndex == -1) {
+        maxIndex = (stuckCounter % 2 == 0) ? 0 : 4;
+      }
+      
+      // CRITICAL SAFETY: Ensure center angle (index 2, angle 90°) is NEVER selected
+      // This prevents robot from getting stuck with servo moving but not turning
+      // Index 2 corresponds to angles[2] = 90° (center)
+      if (maxIndex == 2) {
+        // Force extreme angle: use stuckCounter to alternate left/right
+        int targetIndex = (stuckCounter % 2 == 0) ? 0 : 4;
+        maxIndex = targetIndex;  // Index 0 = 0°, Index 4 = 180°
+      }
+      
       targetAngle = angles[maxIndex];
       autoState = TURN_TO_CLEAR;
       stateStart = now;
     } break;
 
     case TURN_TO_CLEAR: {
-      int currentServo = myServo.read();
-      if (abs(currentServo - targetAngle) > 3) {
-        if (currentServo < targetAngle)
-          left();
-        else
-          right();
-      } else {
-        if (frontDistance() > CLEAR_THRESHOLD) {
-          Stop();
-          myServo.write(90);
-          autoState = MOVE_FORWARD;
-        }
+      // Safety check: if targetAngle is center (90°), force extreme angle
+      // This should never happen due to SCAN logic, but prevents stuck state
+      if (targetAngle == 90) {
+        targetAngle = (stuckCounter % 2 == 0) ? EXTREME_ANGLE_LEFT : EXTREME_ANGLE_RIGHT;
       }
+      
+      // Calculate required turn time based on angle difference from center
+      int angleFromCenter = abs(targetAngle - 90);
+      // Note: Integer division is exact since targetAngle is always a multiple of 45
+      // (scan angles are 0, 45, 90, 135, 180)
+      unsigned long requiredTurnTime = ((unsigned long)angleFromCenter * TURN_TIME_PER_45_DEG) / 45;
+      
+      // Add EXTRA turn time for extreme angles (0° or 180°) to ensure VERY drastic direction change
+      if (targetAngle == EXTREME_ANGLE_LEFT || targetAngle == EXTREME_ANGLE_RIGHT) {
+        requiredTurnTime += EXTREME_ANGLE_EXTRA_TURN;
+      }
+      
+      // Turn in the appropriate direction for the calculated time
+      if (now - stateStart < requiredTurnTime) {
+        if (targetAngle < 90) {
+          left();  // Turn left for angles 0-89
+        } else if (targetAngle > 90) {
+          right(); // Turn right for angles 91-180
+        } else {
+          // Should never reach here due to safety check above
+          Stop();
+        }
+      } else {
+        // Done turning, move to verification state
+        Stop();
+        myServo.write(90); // Reset servo to center
+        autoState = TURN_VERIFY;
+        stateStart = now;
+      }
+      
+      // Timeout safety - if taking too long, reset
       if (now - stateStart > MAX_TURN_TIME) {
         Stop();
+        myServo.write(90);
         autoState = IDLE;
+      }
+    } break;
+    
+    case TURN_VERIFY: {
+      // Wait briefly for servo to settle and distance reading to stabilize
+      if (now - stateStart > 300) {
+        long clearDistance = frontDistance();
+        if (clearDistance > CLEAR_THRESHOLD) {
+          // Path is clear, proceed forward
+          autoState = MOVE_FORWARD;
+          isStalled = false;  // Reset stall detection
+          previousDistance = INVALID_DISTANCE;
+        } else {
+          // Path still blocked after turning, use shorter backup and rescan
+          useShortBackup = true;
+          autoState = MOVE_BACK;
+          stateStart = now;
+        }
       }
     } break;
   }
