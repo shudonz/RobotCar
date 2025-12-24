@@ -121,6 +121,8 @@ void updateScroll() {
 #define SCAN_CENTER_PENALTY 20  // Very heavily penalize center angle (90°) to 20% of distance
 #define SCAN_SIDE_BONUS 180     // Very strong bonus for side angles (0° and 180°) to 180% of distance
 #define SCAN_INTERMEDIATE_PENALTY 60  // Penalize intermediate angles (45°, 135°) to 60% when stuck
+#define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 1  // After this many stuck cycles, only allow extreme angles
+#define PROGRESS_RESET_THRESHOLD 10  // Distance improvement (cm) needed to reset stuck counter
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -314,7 +316,7 @@ void loop() {
           } else {
             isStalled = false;
             // Reset stuck counter if robot is making progress
-            if (stuckCounter > 0 && currentDistance > previousDistance + 10) {
+            if (stuckCounter > 0 && currentDistance > previousDistance + PROGRESS_RESET_THRESHOLD) {
               stuckCounter = 0;
             }
           }
@@ -364,7 +366,7 @@ void loop() {
         }
         // When stuck multiple times, also penalize intermediate angles heavily
         // Force robot to pick extreme angles (0° or 180°) for drastic direction change
-        else if ((i == 1 || i == 3) && stuckCounter > 1) {
+        else if ((i == 1 || i == 3) && stuckCounter > STUCK_THRESHOLD_FOR_EXTREME_ANGLES) {
           scores[i] = scores[i] * SCAN_INTERMEDIATE_PENALTY / 100;
         }
         // VERY strong bonus to extreme angles for drastic turns
@@ -383,7 +385,7 @@ void loop() {
       // Completely exclude center and intermediate angles when stuck
       if (maxIndex == -1) {
         // When stuck, ONLY consider extreme angles (0° or 180°)
-        if (stuckCounter > 1) {
+        if (stuckCounter > STUCK_THRESHOLD_FOR_EXTREME_ANGLES) {
           if (scores[0] > scores[4]) {
             maxIndex = 0;  // Hard left
           } else {
