@@ -114,18 +114,18 @@ void updateScroll() {
 #define RIGHT_SPEED 100
 #define CLEAR_THRESHOLD 30
 #define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
-#define BACKUP_TIME 1200        // Time to back up after hitting obstacle (ms)
+#define BACKUP_TIME 1800        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
-#define TURN_TIME_PER_45_DEG 600 // Estimated time to turn 45 degrees (ms) - increased for more reliable turns
-#define EXTREME_ANGLE_EXTRA_TURN 300 // Extra turn time (ms) for extreme angles to ensure drastic direction change
-#define MAX_TURN_TIME 3000
-#define SCAN_CENTER_PENALTY 10  // EXTREMELY heavily penalize center angle (90°) to 10% of distance
-#define SCAN_SIDE_BONUS 200     // EXTREMELY strong bonus for side angles (0° and 180°) to 200% of distance
-                                // Note: Max calculation 400cm * 200% = 800, safe for long type
-#define SCAN_INTERMEDIATE_PENALTY 40  // Heavily penalize intermediate angles (45°, 135°) to 40% immediately
+#define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
+#define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
+#define MAX_TURN_TIME 4000      // Increased timeout for longer turns
+#define SCAN_CENTER_PENALTY 5   // MAXIMUM penalty - center angle almost impossible to select
+#define SCAN_SIDE_BONUS 250     // MAXIMUM bonus for side angles - 150% bonus!
+                                // Note: Max calculation 400cm * 250% = 1000, safe for long type
+#define SCAN_INTERMEDIATE_PENALTY 30  // Even heavier penalty on intermediate angles
 #define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle
-#define PROGRESS_RESET_THRESHOLD 10  // Distance improvement (cm) needed to reset stuck counter
-#define STALL_COUNTER_INCREMENT 2   // Counter increment for physical stalls (more aggressive than normal)
+#define PROGRESS_RESET_THRESHOLD 15  // Require MORE progress to reset stuck counter
+#define STALL_COUNTER_INCREMENT 3   // Triple increment for stalls - VERY aggressive
 #define EXTREME_ANGLE_LEFT 0    // Left extreme angle for drastic turns
 #define EXTREME_ANGLE_RIGHT 180 // Right extreme angle for drastic turns
 void front() {
