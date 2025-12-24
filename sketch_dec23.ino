@@ -178,6 +178,7 @@ bool useShortBackup = false;  // Flag for shorter backup after failed turn
 int stuckCounter = 0;  // Track how many times we've been stuck
 bool wasStalled = false;  // Physical stall detection (robot stuck despite sensor showing clear) vs frontal obstacle
 int backupAttempts = 0;  // Track consecutive backup attempts to detect backing into obstacles
+int turnOnlyAttempts = 0;  // Track consecutive turn-without-backup cycles to detect stuck in turn loop
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -300,6 +301,7 @@ void loop() {
         autoState = MOVE_FORWARD;
         front();
         backupAttempts = 0;  // Reset backup attempts when starting fresh movement
+        turnOnlyAttempts = 0;  // Reset turn-only attempts when starting fresh
       } else {
         autoState = MOVE_BACK;
         stateStart = now;
@@ -329,6 +331,7 @@ void loop() {
             if (stuckCounter > 0 && currentDistance > previousDistance + PROGRESS_RESET_THRESHOLD) {
               stuckCounter = 0;
               backupAttempts = 0;  // Also reset backup attempts when making good progress
+              turnOnlyAttempts = 0;  // Also reset turn-only attempts when making progress
             }
           }
           previousDistance = currentDistance;
@@ -345,13 +348,23 @@ void loop() {
     case MOVE_BACK: {
       // Check if we've backed up too many times (likely backing into obstacle)
       if (backupAttempts >= MAX_BACKUP_ATTEMPTS) {
-        // Skip backing up, go straight to turn
-        Stop();
-        autoState = SCAN;
-        stateStart = now;
-        // Don't reset counter here - let it reset only on successful progress
-        useShortBackup = false;
-        break;
+        // Increment turn-only counter to detect stuck in turn-only loop
+        turnOnlyAttempts++;
+        
+        // If we've been turning in place too many times without progress, reset backup counter
+        // This allows robot to back up again and break the turn-only loop
+        if (turnOnlyAttempts >= 3) {
+          backupAttempts = 0;  // Reset to allow backing up again
+          turnOnlyAttempts = 0;  // Reset turn-only counter
+          // Fall through to normal backup logic below
+        } else {
+          // Skip backing up, go straight to turn
+          Stop();
+          autoState = SCAN;
+          stateStart = now;
+          useShortBackup = false;
+          break;
+        }
       }
       
       back();
@@ -359,6 +372,7 @@ void loop() {
       if (now - stateStart > backupDuration) {
         // Backup completed successfully
         backupAttempts++;  // Increment only after successful backup completion
+        turnOnlyAttempts = 0;  // Reset turn-only counter when we actually back up
         autoState = SCAN;
         stateStart = now;
         useShortBackup = false;  // Reset flag
