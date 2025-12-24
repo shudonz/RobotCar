@@ -121,9 +121,12 @@ void updateScroll() {
 #define MAX_TURN_TIME 3000
 #define SCAN_CENTER_PENALTY 10  // EXTREMELY heavily penalize center angle (90°) to 10% of distance
 #define SCAN_SIDE_BONUS 200     // EXTREMELY strong bonus for side angles (0° and 180°) to 200% of distance
+                                // Note: Max calculation 400cm * 200% = 800, safe for long type
 #define SCAN_INTERMEDIATE_PENALTY 40  // Heavily penalize intermediate angles (45°, 135°) to 40% immediately
-#define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle (was 1)
+#define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle
 #define PROGRESS_RESET_THRESHOLD 10  // Distance improvement (cm) needed to reset stuck counter
+#define EXTREME_ANGLE_LEFT 0    // Left extreme angle for drastic turns
+#define EXTREME_ANGLE_RIGHT 180 // Right extreme angle for drastic turns
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -426,7 +429,7 @@ void loop() {
       unsigned long requiredTurnTime = ((unsigned long)angleFromCenter * TURN_TIME_PER_45_DEG) / 45;
       
       // Add EXTRA turn time for extreme angles (0° or 180°) to ensure VERY drastic direction change
-      if (targetAngle == 0 || targetAngle == 180) {
+      if (targetAngle == EXTREME_ANGLE_LEFT || targetAngle == EXTREME_ANGLE_RIGHT) {
         requiredTurnTime += EXTREME_ANGLE_EXTRA_TURN;
       }
       
