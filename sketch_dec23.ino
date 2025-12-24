@@ -116,6 +116,7 @@ void updateScroll() {
 #define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
 #define BACKUP_TIME 1800        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
+#define MAX_BACKUP_ATTEMPTS 2   // Maximum consecutive backup attempts before forcing turn (prevents backing into obstacles)
 #define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
 #define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
 #define MAX_TURN_TIME 4500      // Increased timeout to safely accommodate longest turns (180° = ~3800ms)
@@ -176,6 +177,7 @@ long previousDistance = INVALID_DISTANCE;
 bool useShortBackup = false;  // Flag for shorter backup after failed turn
 int stuckCounter = 0;  // Track how many times we've been stuck
 bool wasStalled = false;  // Physical stall detection (robot stuck despite sensor showing clear) vs frontal obstacle
+int backupAttempts = 0;  // Track consecutive backup attempts to detect backing into obstacles
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -297,6 +299,7 @@ void loop() {
       if (fDist > 30) {
         autoState = MOVE_FORWARD;
         front();
+        backupAttempts = 0;  // Reset backup attempts when starting fresh movement
       } else {
         autoState = MOVE_BACK;
         stateStart = now;
@@ -325,6 +328,7 @@ void loop() {
             // Reset stuck counter if robot is making progress
             if (stuckCounter > 0 && currentDistance > previousDistance + PROGRESS_RESET_THRESHOLD) {
               stuckCounter = 0;
+              backupAttempts = 0;  // Also reset backup attempts when making good progress
             }
           }
           previousDistance = currentDistance;
@@ -339,7 +343,19 @@ void loop() {
     } break;
 
     case MOVE_BACK: {
+      // Check if we've backed up too many times (likely backing into obstacle)
+      if (backupAttempts >= MAX_BACKUP_ATTEMPTS) {
+        // Skip backing up, go straight to turn
+        Stop();
+        autoState = SCAN;
+        stateStart = now;
+        backupAttempts = 0;  // Reset counter
+        useShortBackup = false;
+        break;
+      }
+      
       back();
+      backupAttempts++;  // Increment backup attempt counter
       unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / SHORT_BACKUP_RATIO) : BACKUP_TIME;
       if (now - stateStart > backupDuration) {
         autoState = SCAN;
