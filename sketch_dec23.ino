@@ -116,10 +116,11 @@ void updateScroll() {
 #define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
 #define BACKUP_TIME 1200        // Time to back up after hitting obstacle (ms)
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
-#define TURN_TIME_PER_45_DEG 400 // Estimated time to turn 45 degrees (ms)
+#define TURN_TIME_PER_45_DEG 500 // Estimated time to turn 45 degrees (ms) - increased for more reliable turns
 #define MAX_TURN_TIME 3000
-#define SCAN_CENTER_PENALTY 40  // Heavily penalize center angle (90°) to 40% of distance
-#define SCAN_SIDE_BONUS 140     // Strong bonus for side angles (0° and 180°) to 140% of distance
+#define SCAN_CENTER_PENALTY 20  // Very heavily penalize center angle (90°) to 20% of distance
+#define SCAN_SIDE_BONUS 180     // Very strong bonus for side angles (0° and 180°) to 180% of distance
+#define SCAN_INTERMEDIATE_PENALTY 60  // Penalize intermediate angles (45°, 135°) to 60% when stuck
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -166,6 +167,7 @@ unsigned long stallStart = 0;
 bool isStalled = false;
 long previousDistance = INVALID_DISTANCE;
 bool useShortBackup = false;  // Flag for shorter backup after failed turn
+int stuckCounter = 0;  // Track how many times we've been stuck
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -311,6 +313,10 @@ void loop() {
             }
           } else {
             isStalled = false;
+            // Reset stuck counter if robot is making progress
+            if (stuckCounter > 0 && currentDistance > previousDistance + 10) {
+              stuckCounter = 0;
+            }
           }
           previousDistance = currentDistance;
           lastMoveCheck = now;
@@ -343,8 +349,8 @@ void loop() {
         delay(150);
         distances[i] = frontDistance();
       }
-      // Apply weighted scoring to strongly prefer side angles over center
-      // This prevents repeatedly hitting the same wall
+      
+      // Apply VERY aggressive weighted scoring to force extreme turns
       long scores[5];
       int maxIndex = -1;
       long maxScore = -1;
@@ -352,11 +358,16 @@ void loop() {
       for (int i = 0; i < 5; i++) {
         scores[i] = distances[i];
         
-        // Heavily penalize center angle (90°) where we just hit the wall
+        // VERY heavily penalize center angle (90°) - never go back to wall
         if (i == 2) {
           scores[i] = scores[i] * SCAN_CENTER_PENALTY / 100;
         }
-        // Strong bonus to extreme angles (0° and 180°) for better exploration
+        // When stuck multiple times, also penalize intermediate angles heavily
+        // Force robot to pick extreme angles (0° or 180°) for drastic direction change
+        else if ((i == 1 || i == 3) && stuckCounter > 1) {
+          scores[i] = scores[i] * SCAN_INTERMEDIATE_PENALTY / 100;
+        }
+        // VERY strong bonus to extreme angles for drastic turns
         else if (i == 0 || i == 4) {
           scores[i] = scores[i] * SCAN_SIDE_BONUS / 100;
         }
@@ -368,25 +379,36 @@ void loop() {
         }
       }
       
-      // If no direction has sufficient clearance, pick the side with most space
-      // (exclude center entirely)
+      // If no direction has sufficient clearance, pick extreme angle with most space
+      // Completely exclude center and intermediate angles when stuck
       if (maxIndex == -1) {
-        for (int i = 0; i < 5; i++) {
-          if (i != 2 && scores[i] > maxScore) {  // Never pick center when stuck
-            maxScore = scores[i];
-            maxIndex = i;
+        // When stuck, ONLY consider extreme angles (0° or 180°)
+        if (stuckCounter > 1) {
+          if (scores[0] > scores[4]) {
+            maxIndex = 0;  // Hard left
+          } else {
+            maxIndex = 4;  // Hard right
+          }
+        } else {
+          // First time stuck, allow non-center angles
+          for (int i = 0; i < 5; i++) {
+            if (i != 2 && scores[i] > maxScore) {
+              maxScore = scores[i];
+              maxIndex = i;
+            }
           }
         }
       }
       
-      // Failsafe: if still no valid direction, turn hard left
+      // Failsafe: if still no valid direction, alternate between hard left and hard right
       if (maxIndex == -1) {
-        maxIndex = 0;
+        maxIndex = (stuckCounter % 2 == 0) ? 0 : 4;
       }
       
       targetAngle = angles[maxIndex];
       autoState = TURN_TO_CLEAR;
       stateStart = now;
+      stuckCounter++;  // Increment stuck counter
     } break;
 
     case TURN_TO_CLEAR: {
