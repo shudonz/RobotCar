@@ -22,6 +22,9 @@ const int right_pwm = 6;
 /* ---------------- SERVO ---------------- */
 const int servoPin = 9;
 Servo myServo;
+#define SERVO_CENTER 90         // Center position for servo
+#define SERVO_SETTLE_DELAY 300  // Time to wait for servo to settle (ms)
+#define SERVO_RETURN_DELAY 200  // Time to wait for servo to return to center (ms)
 
 /* ---------------- LED MATRIX ---------------- */
 #define SCL_Pin A5
@@ -113,13 +116,13 @@ void updateScroll() {
 #define LEFT_SPEED 100
 #define RIGHT_SPEED 100
 #define CLEAR_THRESHOLD 30
-#define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
-#define BACKUP_TIME 1800        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
+#define MIN_CLEAR_DISTANCE 50   // Minimum acceptable distance for path selection
+#define BACKUP_TIME 2500        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
 #define MAX_BACKUP_ATTEMPTS 2   // Maximum consecutive backup attempts before forcing turn (prevents backing into obstacles)
 #define MAX_TURN_ONLY_ATTEMPTS 3 // Maximum consecutive turn-without-backup cycles before resetting backup limiter
-#define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
-#define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
+#define TURN_TIME_PER_45_DEG 900 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
+#define EXTREME_ANGLE_EXTRA_TURN 800 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
 #define MAX_TURN_TIME 4500      // Increased timeout to safely accommodate longest turns (180° = ~3800ms)
 #define SCAN_CENTER_PENALTY 5   // MAXIMUM penalty - center angle almost impossible to select
 #define SCAN_SIDE_BONUS 250     // MAXIMUM bonus for side angles (250% of distance = 150% increase over baseline)
@@ -130,15 +133,17 @@ void updateScroll() {
 #define STALL_COUNTER_INCREMENT 3   // Triple increment for stalls - VERY aggressive
 #define EXTREME_ANGLE_LEFT 0    // Left extreme angle for drastic turns
 #define EXTREME_ANGLE_RIGHT 180 // Right extreme angle for drastic turns
+#define MIN_REAR_CLEARANCE 20   // Minimum rear distance to allow backup (cm)
+#define REAR_CHECK_ANGLE 180    // Servo angle to check rear (facing backward)
 void front() {
-  myServo.write(90);
+  myServo.write(SERVO_CENTER);
   digitalWrite(left_ctrl, HIGH);
   analogWrite(left_pwm, LEFT_SPEED);
   digitalWrite(right_ctrl, HIGH);
   analogWrite(right_pwm, RIGHT_SPEED);
 }
 void back() {
-  myServo.write(90);
+  myServo.write(SERVO_CENTER);
   digitalWrite(left_ctrl, LOW);
   analogWrite(left_pwm, 180);
   digitalWrite(right_ctrl, LOW);
@@ -195,7 +200,7 @@ void bubbleSort(long arr[], int n) {
 }
 
 /* ---------------- AUTO STATE MACHINE ---------------- */
-enum AutoState {IDLE, MOVE_FORWARD, MOVE_BACK, SCAN, TURN_TO_CLEAR, TURN_VERIFY};
+enum AutoState {IDLE, MOVE_FORWARD, CHECK_REAR, MOVE_BACK, SCAN, TURN_TO_CLEAR, TURN_VERIFY};
 AutoState autoState = IDLE;
 unsigned long stateStart = 0;
 int targetAngle = 90; // 0=left, 90=center, 180=right
@@ -222,7 +227,7 @@ void setup() {
   pinMode(SDA_Pin, OUTPUT);
   irrecv.enableIRIn();
   myServo.attach(servoPin);
-  myServo.write(90); // start centered
+  myServo.write(SERVO_CENTER); // start centered
   matrix_init();
   prepareScroll();
   Stop();
@@ -267,7 +272,7 @@ void loop() {
         driveCmd = 'S';
         autoState = IDLE;
         Stop();
-        myServo.write(90);
+        myServo.write(SERVO_CENTER);
         stateStart = now;
         break;
     }
@@ -304,7 +309,7 @@ void loop() {
         backupAttempts = 0;  // Reset backup attempts when starting fresh movement
         turnOnlyAttempts = 0;  // Reset turn-only attempts when starting fresh
       } else {
-        autoState = MOVE_BACK;
+        autoState = CHECK_REAR;
         stateStart = now;
         Stop();
       }
@@ -322,7 +327,7 @@ void loop() {
               stallStart = now;
             } else if (now - stallStart > STALL_TIMEOUT) {
               Stop();
-              autoState = MOVE_BACK;
+              autoState = CHECK_REAR;
               stateStart = now;
               wasStalled = true;  // Mark that we're stuck due to stall (side wall likely)
             }
@@ -340,9 +345,46 @@ void loop() {
         }
       } else {
         Stop();
-        autoState = MOVE_BACK;
+        autoState = CHECK_REAR;
         stateStart = now;
         wasStalled = false;  // Not a stall, we saw a wall ahead
+      }
+    } break;
+
+    case CHECK_REAR: {
+      // Check rear clearance before backing up to avoid backing into obstacles
+      Stop();
+      
+      // Rotate servo to check rear
+      myServo.write(REAR_CHECK_ANGLE);
+      delay(SERVO_SETTLE_DELAY);  // Wait for servo to settle
+      
+      long rearDistance = frontDistance();
+      
+      // Reset servo to center
+      myServo.write(SERVO_CENTER);
+      delay(SERVO_RETURN_DELAY);  // Brief delay for servo to return
+      
+      // Decide whether to back up based on rear clearance
+      if (rearDistance < MIN_REAR_CLEARANCE) {
+        // Not enough rear clearance, skip backup and go straight to scan
+        // This prevents backing into obstacles
+        backupAttempts++;  // Count this as a backup attempt to trigger turn-only logic
+        turnOnlyAttempts++;  // Also increment turn-only counter
+        autoState = SCAN;
+        stateStart = now;
+        useShortBackup = false;
+      } else if (rearDistance < MIN_CLEAR_DISTANCE) {
+        // Limited rear clearance, use shorter backup
+        useShortBackup = true;
+        autoState = MOVE_BACK;
+        stateStart = now;
+      } else {
+        // Good rear clearance, use normal backup duration
+        // Note: useShortBackup may already be true from TURN_VERIFY state
+        // If not already set, it will remain false for normal backup duration
+        autoState = MOVE_BACK;
+        stateStart = now;
       }
     } break;
 
@@ -507,7 +549,7 @@ void loop() {
       } else {
         // Done turning, move to verification state
         Stop();
-        myServo.write(90); // Reset servo to center
+        myServo.write(SERVO_CENTER); // Reset servo to center
         autoState = TURN_VERIFY;
         stateStart = now;
       }
@@ -515,7 +557,7 @@ void loop() {
       // Timeout safety - if taking too long, reset
       if (now - stateStart > MAX_TURN_TIME) {
         Stop();
-        myServo.write(90);
+        myServo.write(SERVO_CENTER);
         autoState = IDLE;
       }
     } break;
@@ -532,7 +574,7 @@ void loop() {
         } else {
           // Path still blocked after turning, use shorter backup and rescan
           useShortBackup = true;
-          autoState = MOVE_BACK;
+          autoState = CHECK_REAR;
           stateStart = now;
         }
       }
