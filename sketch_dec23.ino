@@ -333,9 +333,23 @@ void loop() {
         delay(150);
         distances[i] = frontDistance();
       }
+      // Apply weighted scoring to prefer side angles over center
+      // This prevents repeatedly hitting the same wall
+      long scores[5];
+      for (int i = 0; i < 5; i++) {
+        scores[i] = distances[i];
+        // Penalize center angle (90°) where we just hit the wall
+        if (i == 2) {
+          scores[i] = scores[i] * 60 / 100; // 40% penalty to center
+        }
+        // Bonus to extreme angles (0° and 180°) for better exploration
+        else if (i == 0 || i == 4) {
+          scores[i] = scores[i] * 120 / 100; // 20% bonus to sides
+        }
+      }
       int maxIndex = 0;
       for (int i = 1; i < 5; i++) {
-        if (distances[i] > distances[maxIndex]) maxIndex = i;
+        if (scores[i] > scores[maxIndex]) maxIndex = i;
       }
       targetAngle = angles[maxIndex];
       autoState = TURN_TO_CLEAR;
