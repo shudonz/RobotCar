@@ -125,6 +125,7 @@ void updateScroll() {
 #define SCAN_INTERMEDIATE_PENALTY 40  // Heavily penalize intermediate angles (45°, 135°) to 40% immediately
 #define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle
 #define PROGRESS_RESET_THRESHOLD 10  // Distance improvement (cm) needed to reset stuck counter
+#define STALL_COUNTER_INCREMENT 2   // Counter increment for physical stalls (more aggressive than normal)
 #define EXTREME_ANGLE_LEFT 0    // Left extreme angle for drastic turns
 #define EXTREME_ANGLE_RIGHT 180 // Right extreme angle for drastic turns
 void front() {
@@ -174,7 +175,7 @@ bool isStalled = false;
 long previousDistance = INVALID_DISTANCE;
 bool useShortBackup = false;  // Flag for shorter backup after failed turn
 int stuckCounter = 0;  // Track how many times we've been stuck
-bool wasStalled = false;  // Flag to indicate if we got stuck due to stall (vs seeing wall)
+bool wasStalled = false;  // Physical stall detection (robot stuck despite sensor showing clear) vs frontal obstacle
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -354,12 +355,12 @@ void loop() {
       
       // Increment stuck counter at start of scan
       // With threshold=0: extreme angles enforced immediately from 1st stuck cycle
-      // If stalled (side wall), increment by 2 to be more aggressive
+      // If stalled (physical obstruction), use aggressive increment to force drastic turns
       if (wasStalled) {
-        stuckCounter += 2;  // Double increment for stall - be VERY aggressive
+        stuckCounter += STALL_COUNTER_INCREMENT;  // Aggressive increment for stalls
         wasStalled = false;  // Reset flag
       } else {
-        stuckCounter++;
+        stuckCounter++;  // Normal increment for frontal obstacles
       }
       
       long distances[5];
