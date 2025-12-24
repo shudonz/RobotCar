@@ -344,6 +344,11 @@ void loop() {
     case SCAN: {
       Stop();
       delay(200);
+      
+      // Increment stuck counter at start of scan
+      // With threshold=1: 1st stuck allows any angle, 2nd+ stuck enforces extreme angles
+      stuckCounter++;
+      
       long distances[5];
       int angles[5] = {0, 45, 90, 135, 180};
       for (int i = 0; i < 5; i++) {
@@ -410,7 +415,6 @@ void loop() {
       targetAngle = angles[maxIndex];
       autoState = TURN_TO_CLEAR;
       stateStart = now;
-      stuckCounter++;  // Increment stuck counter
     } break;
 
     case TURN_TO_CLEAR: {
