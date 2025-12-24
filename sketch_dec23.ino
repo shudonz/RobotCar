@@ -118,9 +118,9 @@ void updateScroll() {
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
 #define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
 #define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
-#define MAX_TURN_TIME 4000      // Increased timeout for longer turns
+#define MAX_TURN_TIME 4500      // Increased timeout to safely accommodate longest turns (180° = ~3800ms)
 #define SCAN_CENTER_PENALTY 5   // MAXIMUM penalty - center angle almost impossible to select
-#define SCAN_SIDE_BONUS 250     // MAXIMUM bonus for side angles - 150% bonus!
+#define SCAN_SIDE_BONUS 250     // MAXIMUM bonus for side angles (250% of distance = 150% increase over baseline)
                                 // Note: Max calculation 400cm * 250% = 1000, safe for long type
 #define SCAN_INTERMEDIATE_PENALTY 30  // Even heavier penalty on intermediate angles
 #define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle
