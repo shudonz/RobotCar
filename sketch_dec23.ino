@@ -113,13 +113,13 @@ void updateScroll() {
 #define LEFT_SPEED 100
 #define RIGHT_SPEED 100
 #define CLEAR_THRESHOLD 30
-#define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
-#define BACKUP_TIME 1800        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
+#define MIN_CLEAR_DISTANCE 50   // Minimum acceptable distance for path selection
+#define BACKUP_TIME 2500        // Time to back up after hitting obstacle (ms) - INCREASED for more separation
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
 #define MAX_BACKUP_ATTEMPTS 2   // Maximum consecutive backup attempts before forcing turn (prevents backing into obstacles)
 #define MAX_TURN_ONLY_ATTEMPTS 3 // Maximum consecutive turn-without-backup cycles before resetting backup limiter
-#define TURN_TIME_PER_45_DEG 800 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
-#define EXTREME_ANGLE_EXTRA_TURN 600 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
+#define TURN_TIME_PER_45_DEG 900 // Estimated time to turn 45 degrees (ms) - SIGNIFICANTLY increased for complete rotation
+#define EXTREME_ANGLE_EXTRA_TURN 800 // Extra turn time (ms) for extreme angles - DOUBLED for MAXIMUM drastic change
 #define MAX_TURN_TIME 4500      // Increased timeout to safely accommodate longest turns (180° = ~3800ms)
 #define SCAN_CENTER_PENALTY 5   // MAXIMUM penalty - center angle almost impossible to select
 #define SCAN_SIDE_BONUS 250     // MAXIMUM bonus for side angles (250% of distance = 150% increase over baseline)
