@@ -160,9 +160,11 @@ char driveCmd = 'S';
 unsigned long lastMoveCheck = 0;
 unsigned long stallStart = 0;
 bool isStalled = false;
-long previousDistance = 999;
+long previousDistance = INVALID_DISTANCE;
+#define INVALID_DISTANCE 999
 #define MOVE_CHECK_INTERVAL 200
 #define STALL_TIMEOUT 800
+bool useShortBackup = false;  // Flag for shorter backup after failed turn
 
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
@@ -319,14 +321,16 @@ void loop() {
       }
     } break;
 
-    case MOVE_BACK:
+    case MOVE_BACK: {
       back();
-      if (now - stateStart > BACKUP_TIME) {
+      unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / 2) : BACKUP_TIME;
+      if (now - stateStart > backupDuration) {
         autoState = SCAN;
         stateStart = now;
+        useShortBackup = false;  // Reset flag
         Stop();
       }
-      break;
+    } break;
 
     case SCAN: {
       Stop();
@@ -423,11 +427,12 @@ void loop() {
           // Path is clear, proceed forward
           autoState = MOVE_FORWARD;
           isStalled = false;  // Reset stall detection
-          previousDistance = 999;
+          previousDistance = INVALID_DISTANCE;
         } else {
-          // Path still blocked after turning, try shorter backup and rescan
+          // Path still blocked after turning, use shorter backup and rescan
+          useShortBackup = true;
           autoState = MOVE_BACK;
-          stateStart = now - (BACKUP_TIME / 2); // Only back up for half the normal time
+          stateStart = now;
         }
       }
     } break;
