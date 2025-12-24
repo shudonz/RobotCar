@@ -116,12 +116,13 @@ void updateScroll() {
 #define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
 #define BACKUP_TIME 1200        // Time to back up after hitting obstacle (ms)
 #define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
-#define TURN_TIME_PER_45_DEG 500 // Estimated time to turn 45 degrees (ms) - increased for more reliable turns
+#define TURN_TIME_PER_45_DEG 600 // Estimated time to turn 45 degrees (ms) - increased for more reliable turns
+#define EXTREME_ANGLE_EXTRA_TURN 300 // Extra turn time (ms) for extreme angles to ensure drastic direction change
 #define MAX_TURN_TIME 3000
-#define SCAN_CENTER_PENALTY 20  // Very heavily penalize center angle (90°) to 20% of distance
-#define SCAN_SIDE_BONUS 180     // Very strong bonus for side angles (0° and 180°) to 180% of distance
-#define SCAN_INTERMEDIATE_PENALTY 60  // Penalize intermediate angles (45°, 135°) to 60% when stuck
-#define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 1  // After this many stuck cycles, only allow extreme angles
+#define SCAN_CENTER_PENALTY 10  // EXTREMELY heavily penalize center angle (90°) to 10% of distance
+#define SCAN_SIDE_BONUS 200     // EXTREMELY strong bonus for side angles (0° and 180°) to 200% of distance
+#define SCAN_INTERMEDIATE_PENALTY 40  // Heavily penalize intermediate angles (45°, 135°) to 40% immediately
+#define STUCK_THRESHOLD_FOR_EXTREME_ANGLES 0  // Enforce extreme angles from FIRST stuck cycle (was 1)
 #define PROGRESS_RESET_THRESHOLD 10  // Distance improvement (cm) needed to reset stuck counter
 void front() {
   myServo.write(90);
@@ -346,7 +347,7 @@ void loop() {
       delay(200);
       
       // Increment stuck counter at start of scan
-      // With threshold=1: 1st stuck allows any angle, 2nd+ stuck enforces extreme angles
+      // With threshold=0: extreme angles enforced immediately from 1st stuck cycle
       stuckCounter++;
       
       long distances[5];
@@ -423,6 +424,11 @@ void loop() {
       // Note: Integer division is exact since targetAngle is always a multiple of 45
       // (scan angles are 0, 45, 90, 135, 180)
       unsigned long requiredTurnTime = ((unsigned long)angleFromCenter * TURN_TIME_PER_45_DEG) / 45;
+      
+      // Add EXTRA turn time for extreme angles (0° or 180°) to ensure VERY drastic direction change
+      if (targetAngle == 0 || targetAngle == 180) {
+        requiredTurnTime += EXTREME_ANGLE_EXTRA_TURN;
+      }
       
       // Turn in the appropriate direction for the calculated time
       if (now - stateStart < requiredTurnTime) {
