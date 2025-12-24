@@ -22,6 +22,9 @@ const int right_pwm = 6;
 /* ---------------- SERVO ---------------- */
 const int servoPin = 9;
 Servo myServo;
+#define SERVO_CENTER 90         // Center position for servo
+#define SERVO_SETTLE_DELAY 300  // Time to wait for servo to settle (ms)
+#define SERVO_RETURN_DELAY 200  // Time to wait for servo to return to center (ms)
 
 /* ---------------- LED MATRIX ---------------- */
 #define SCL_Pin A5
@@ -133,14 +136,14 @@ void updateScroll() {
 #define MIN_REAR_CLEARANCE 20   // Minimum rear distance to allow backup (cm)
 #define REAR_CHECK_ANGLE 180    // Servo angle to check rear (facing backward)
 void front() {
-  myServo.write(90);
+  myServo.write(SERVO_CENTER);
   digitalWrite(left_ctrl, HIGH);
   analogWrite(left_pwm, LEFT_SPEED);
   digitalWrite(right_ctrl, HIGH);
   analogWrite(right_pwm, RIGHT_SPEED);
 }
 void back() {
-  myServo.write(90);
+  myServo.write(SERVO_CENTER);
   digitalWrite(left_ctrl, LOW);
   analogWrite(left_pwm, 180);
   digitalWrite(right_ctrl, LOW);
@@ -224,7 +227,7 @@ void setup() {
   pinMode(SDA_Pin, OUTPUT);
   irrecv.enableIRIn();
   myServo.attach(servoPin);
-  myServo.write(90); // start centered
+  myServo.write(SERVO_CENTER); // start centered
   matrix_init();
   prepareScroll();
   Stop();
@@ -269,7 +272,7 @@ void loop() {
         driveCmd = 'S';
         autoState = IDLE;
         Stop();
-        myServo.write(90);
+        myServo.write(SERVO_CENTER);
         stateStart = now;
         break;
     }
@@ -354,13 +357,13 @@ void loop() {
       
       // Rotate servo to check rear
       myServo.write(REAR_CHECK_ANGLE);
-      delay(300);  // Wait for servo to settle
+      delay(SERVO_SETTLE_DELAY);  // Wait for servo to settle
       
       long rearDistance = frontDistance();
       
       // Reset servo to center
-      myServo.write(90);
-      delay(200);  // Brief delay for servo to return
+      myServo.write(SERVO_CENTER);
+      delay(SERVO_RETURN_DELAY);  // Brief delay for servo to return
       
       // Decide whether to back up based on rear clearance
       if (rearDistance < MIN_REAR_CLEARANCE) {
@@ -377,8 +380,9 @@ void loop() {
         autoState = MOVE_BACK;
         stateStart = now;
       } else {
-        // Good rear clearance, proceed with normal backup
-        // useShortBackup flag already set from previous state if needed
+        // Good rear clearance, use normal backup duration
+        // Note: useShortBackup may already be true from TURN_VERIFY state
+        // If not already set, it will remain false for normal backup duration
         autoState = MOVE_BACK;
         stateStart = now;
       }
@@ -545,7 +549,7 @@ void loop() {
       } else {
         // Done turning, move to verification state
         Stop();
-        myServo.write(90); // Reset servo to center
+        myServo.write(SERVO_CENTER); // Reset servo to center
         autoState = TURN_VERIFY;
         stateStart = now;
       }
@@ -553,7 +557,7 @@ void loop() {
       // Timeout safety - if taking too long, reset
       if (now - stateStart > MAX_TURN_TIME) {
         Stop();
-        myServo.write(90);
+        myServo.write(SERVO_CENTER);
         autoState = IDLE;
       }
     } break;
