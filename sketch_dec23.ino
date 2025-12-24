@@ -113,9 +113,12 @@ void updateScroll() {
 #define LEFT_SPEED 100
 #define RIGHT_SPEED 100
 #define CLEAR_THRESHOLD 30
+#define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
+#define BACKUP_TIME 1200        // Time to back up after hitting obstacle (ms)
+#define TURN_TIME_PER_45_DEG 400 // Estimated time to turn 45 degrees (ms)
 #define MAX_TURN_TIME 3000
-#define SCAN_CENTER_PENALTY 60  // Penalize center angle (90°) to 60% of distance
-#define SCAN_SIDE_BONUS 120     // Bonus for side angles (0° and 180°) to 120% of distance
+#define SCAN_CENTER_PENALTY 40  // Heavily penalize center angle (90°) to 40% of distance
+#define SCAN_SIDE_BONUS 140     // Strong bonus for side angles (0° and 180°) to 140% of distance
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -318,7 +321,7 @@ void loop() {
 
     case MOVE_BACK:
       back();
-      if (now - stateStart > 700) {
+      if (now - stateStart > BACKUP_TIME) {
         autoState = SCAN;
         stateStart = now;
         Stop();
@@ -335,43 +338,85 @@ void loop() {
         delay(150);
         distances[i] = frontDistance();
       }
-      // Apply weighted scoring to prefer side angles over center
+      // Apply weighted scoring to strongly prefer side angles over center
       // This prevents repeatedly hitting the same wall
       long scores[5];
+      int maxIndex = -1;
+      long maxScore = -1;
+      
       for (int i = 0; i < 5; i++) {
         scores[i] = distances[i];
-        // Penalize center angle (90°) where we just hit the wall
+        
+        // Heavily penalize center angle (90°) where we just hit the wall
         if (i == 2) {
           scores[i] = scores[i] * SCAN_CENTER_PENALTY / 100;
         }
-        // Bonus to extreme angles (0° and 180°) for better exploration
+        // Strong bonus to extreme angles (0° and 180°) for better exploration
         else if (i == 0 || i == 4) {
           scores[i] = scores[i] * SCAN_SIDE_BONUS / 100;
         }
+        
+        // Only consider directions with reasonable clearance
+        if (distances[i] >= MIN_CLEAR_DISTANCE && scores[i] > maxScore) {
+          maxScore = scores[i];
+          maxIndex = i;
+        }
       }
-      int maxIndex = 0;
-      for (int i = 1; i < 5; i++) {
-        if (scores[i] > scores[maxIndex]) maxIndex = i;
+      
+      // If no direction has sufficient clearance, pick the side with most space
+      // (exclude center entirely)
+      if (maxIndex == -1) {
+        for (int i = 0; i < 5; i++) {
+          if (i != 2 && scores[i] > maxScore) {  // Never pick center when stuck
+            maxScore = scores[i];
+            maxIndex = i;
+          }
+        }
       }
+      
+      // Failsafe: if still no valid direction, turn hard left
+      if (maxIndex == -1) {
+        maxIndex = 0;
+      }
+      
       targetAngle = angles[maxIndex];
       autoState = TURN_TO_CLEAR;
       stateStart = now;
     } break;
 
     case TURN_TO_CLEAR: {
-      int currentServo = myServo.read();
-      if (abs(currentServo - targetAngle) > 3) {
-        if (currentServo < targetAngle)
-          left();
-        else
-          right();
+      // Calculate required turn time based on angle difference from center
+      int angleFromCenter = abs(targetAngle - 90);
+      unsigned long requiredTurnTime = (angleFromCenter / 45) * TURN_TIME_PER_45_DEG;
+      
+      // Turn in the appropriate direction for the calculated time
+      if (now - stateStart < requiredTurnTime) {
+        if (targetAngle < 90) {
+          left();  // Turn left for angles 0-89
+        } else if (targetAngle > 90) {
+          right(); // Turn right for angles 91-180
+        } else {
+          Stop(); // Should not happen as center is heavily penalized
+        }
       } else {
+        // Done turning, verify path is clear
+        Stop();
+        delay(100);
+        myServo.write(90); // Reset servo to center
+        delay(200);
+        
         if (frontDistance() > CLEAR_THRESHOLD) {
-          Stop();
-          myServo.write(90);
           autoState = MOVE_FORWARD;
+          isStalled = false;  // Reset stall detection
+          previousDistance = 999;
+        } else {
+          // Path still blocked, go back to scanning
+          autoState = MOVE_BACK;
+          stateStart = now;
         }
       }
+      
+      // Timeout safety - if taking too long, reset
       if (now - stateStart > MAX_TURN_TIME) {
         Stop();
         autoState = IDLE;
