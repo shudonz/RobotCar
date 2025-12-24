@@ -349,15 +349,16 @@ void loop() {
         Stop();
         autoState = SCAN;
         stateStart = now;
-        backupAttempts = 0;  // Reset counter
+        // Don't reset counter here - let it reset only on successful progress
         useShortBackup = false;
         break;
       }
       
       back();
-      backupAttempts++;  // Increment backup attempt counter
       unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / SHORT_BACKUP_RATIO) : BACKUP_TIME;
       if (now - stateStart > backupDuration) {
+        // Backup completed successfully
+        backupAttempts++;  // Increment only after successful backup completion
         autoState = SCAN;
         stateStart = now;
         useShortBackup = false;  // Reset flag
