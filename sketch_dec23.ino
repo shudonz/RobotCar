@@ -130,6 +130,8 @@ void updateScroll() {
 #define STALL_COUNTER_INCREMENT 3   // Triple increment for stalls - VERY aggressive
 #define EXTREME_ANGLE_LEFT 0    // Left extreme angle for drastic turns
 #define EXTREME_ANGLE_RIGHT 180 // Right extreme angle for drastic turns
+#define MIN_REAR_CLEARANCE 20   // Minimum rear distance to allow backup (cm)
+#define REAR_CHECK_ANGLE 180    // Servo angle to check rear (facing backward)
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -195,7 +197,7 @@ void bubbleSort(long arr[], int n) {
 }
 
 /* ---------------- AUTO STATE MACHINE ---------------- */
-enum AutoState {IDLE, MOVE_FORWARD, MOVE_BACK, SCAN, TURN_TO_CLEAR, TURN_VERIFY};
+enum AutoState {IDLE, MOVE_FORWARD, CHECK_REAR, MOVE_BACK, SCAN, TURN_TO_CLEAR, TURN_VERIFY};
 AutoState autoState = IDLE;
 unsigned long stateStart = 0;
 int targetAngle = 90; // 0=left, 90=center, 180=right
@@ -304,7 +306,7 @@ void loop() {
         backupAttempts = 0;  // Reset backup attempts when starting fresh movement
         turnOnlyAttempts = 0;  // Reset turn-only attempts when starting fresh
       } else {
-        autoState = MOVE_BACK;
+        autoState = CHECK_REAR;
         stateStart = now;
         Stop();
       }
@@ -322,7 +324,7 @@ void loop() {
               stallStart = now;
             } else if (now - stallStart > STALL_TIMEOUT) {
               Stop();
-              autoState = MOVE_BACK;
+              autoState = CHECK_REAR;
               stateStart = now;
               wasStalled = true;  // Mark that we're stuck due to stall (side wall likely)
             }
@@ -340,9 +342,45 @@ void loop() {
         }
       } else {
         Stop();
-        autoState = MOVE_BACK;
+        autoState = CHECK_REAR;
         stateStart = now;
         wasStalled = false;  // Not a stall, we saw a wall ahead
+      }
+    } break;
+
+    case CHECK_REAR: {
+      // Check rear clearance before backing up to avoid backing into obstacles
+      Stop();
+      
+      // Rotate servo to check rear
+      myServo.write(REAR_CHECK_ANGLE);
+      delay(300);  // Wait for servo to settle
+      
+      long rearDistance = frontDistance();
+      
+      // Reset servo to center
+      myServo.write(90);
+      delay(200);  // Brief delay for servo to return
+      
+      // Decide whether to back up based on rear clearance
+      if (rearDistance < MIN_REAR_CLEARANCE) {
+        // Not enough rear clearance, skip backup and go straight to scan
+        // This prevents backing into obstacles
+        backupAttempts++;  // Count this as a backup attempt to trigger turn-only logic
+        turnOnlyAttempts++;  // Also increment turn-only counter
+        autoState = SCAN;
+        stateStart = now;
+        useShortBackup = false;
+      } else if (rearDistance < MIN_CLEAR_DISTANCE) {
+        // Limited rear clearance, use shorter backup
+        useShortBackup = true;
+        autoState = MOVE_BACK;
+        stateStart = now;
+      } else {
+        // Good rear clearance, proceed with normal backup
+        // useShortBackup flag already set from previous state if needed
+        autoState = MOVE_BACK;
+        stateStart = now;
       }
     } break;
 
@@ -532,7 +570,7 @@ void loop() {
         } else {
           // Path still blocked after turning, use shorter backup and rescan
           useShortBackup = true;
-          autoState = MOVE_BACK;
+          autoState = CHECK_REAR;
           stateStart = now;
         }
       }
