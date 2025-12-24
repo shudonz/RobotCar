@@ -445,8 +445,11 @@ void loop() {
       
       // CRITICAL SAFETY: Ensure center angle (index 2, angle 90°) is NEVER selected
       // This prevents robot from getting stuck with servo moving but not turning
+      // Index 2 corresponds to angles[2] = 90° (center)
       if (maxIndex == 2) {
-        maxIndex = (stuckCounter % 2 == 0) ? 0 : 4;  // Force extreme angle
+        // Force extreme angle: use stuckCounter to alternate left/right
+        int targetIndex = (stuckCounter % 2 == 0) ? 0 : 4;
+        maxIndex = targetIndex;  // Index 0 = 0°, Index 4 = 180°
       }
       
       targetAngle = angles[maxIndex];
