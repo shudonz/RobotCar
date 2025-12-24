@@ -178,7 +178,7 @@ void bubbleSort(long arr[], int n) {
 }
 
 /* ---------------- AUTO STATE MACHINE ---------------- */
-enum AutoState {IDLE, MOVE_FORWARD, MOVE_BACK, SCAN, TURN_TO_CLEAR};
+enum AutoState {IDLE, MOVE_FORWARD, MOVE_BACK, SCAN, TURN_TO_CLEAR, TURN_VERIFY};
 AutoState autoState = IDLE;
 unsigned long stateStart = 0;
 int targetAngle = 90; // 0=left, 90=center, 180=right
@@ -387,7 +387,8 @@ void loop() {
     case TURN_TO_CLEAR: {
       // Calculate required turn time based on angle difference from center
       int angleFromCenter = abs(targetAngle - 90);
-      unsigned long requiredTurnTime = (angleFromCenter / 45) * TURN_TIME_PER_45_DEG;
+      // Fix: Use proper calculation to handle all angles correctly
+      unsigned long requiredTurnTime = ((unsigned long)angleFromCenter * TURN_TIME_PER_45_DEG) / 45;
       
       // Turn in the appropriate direction for the calculated time
       if (now - stateStart < requiredTurnTime) {
@@ -399,27 +400,35 @@ void loop() {
           Stop(); // Should not happen as center is heavily penalized
         }
       } else {
-        // Done turning, verify path is clear
+        // Done turning, move to verification state
         Stop();
-        delay(100);
         myServo.write(90); // Reset servo to center
-        delay(200);
-        
-        if (frontDistance() > CLEAR_THRESHOLD) {
-          autoState = MOVE_FORWARD;
-          isStalled = false;  // Reset stall detection
-          previousDistance = 999;
-        } else {
-          // Path still blocked, go back to scanning
-          autoState = MOVE_BACK;
-          stateStart = now;
-        }
+        autoState = TURN_VERIFY;
+        stateStart = now;
       }
       
       // Timeout safety - if taking too long, reset
       if (now - stateStart > MAX_TURN_TIME) {
         Stop();
+        myServo.write(90);
         autoState = IDLE;
+      }
+    } break;
+    
+    case TURN_VERIFY: {
+      // Wait briefly for servo to settle and distance reading to stabilize
+      if (now - stateStart > 300) {
+        long clearDistance = frontDistance();
+        if (clearDistance > CLEAR_THRESHOLD) {
+          // Path is clear, proceed forward
+          autoState = MOVE_FORWARD;
+          isStalled = false;  // Reset stall detection
+          previousDistance = 999;
+        } else {
+          // Path still blocked after turning, try shorter backup and rescan
+          autoState = MOVE_BACK;
+          stateStart = now - (BACKUP_TIME / 2); // Only back up for half the normal time
+        }
       }
     } break;
   }
