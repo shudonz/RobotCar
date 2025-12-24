@@ -114,6 +114,8 @@ void updateScroll() {
 #define RIGHT_SPEED 100
 #define CLEAR_THRESHOLD 30
 #define MAX_TURN_TIME 3000
+#define SCAN_CENTER_PENALTY 60  // Penalize center angle (90°) to 60% of distance
+#define SCAN_SIDE_BONUS 120     // Bonus for side angles (0° and 180°) to 120% of distance
 void front() {
   myServo.write(90);
   digitalWrite(left_ctrl, HIGH);
@@ -340,11 +342,11 @@ void loop() {
         scores[i] = distances[i];
         // Penalize center angle (90°) where we just hit the wall
         if (i == 2) {
-          scores[i] = scores[i] * 60 / 100; // 40% penalty to center
+          scores[i] = scores[i] * SCAN_CENTER_PENALTY / 100;
         }
         // Bonus to extreme angles (0° and 180°) for better exploration
         else if (i == 0 || i == 4) {
-          scores[i] = scores[i] * 120 / 100; // 20% bonus to sides
+          scores[i] = scores[i] * SCAN_SIDE_BONUS / 100;
         }
       }
       int maxIndex = 0;
