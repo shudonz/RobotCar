@@ -443,12 +443,24 @@ void loop() {
         maxIndex = (stuckCounter % 2 == 0) ? 0 : 4;
       }
       
+      // CRITICAL SAFETY: Ensure center angle (index 2, angle 90°) is NEVER selected
+      // This prevents robot from getting stuck with servo moving but not turning
+      if (maxIndex == 2) {
+        maxIndex = (stuckCounter % 2 == 0) ? 0 : 4;  // Force extreme angle
+      }
+      
       targetAngle = angles[maxIndex];
       autoState = TURN_TO_CLEAR;
       stateStart = now;
     } break;
 
     case TURN_TO_CLEAR: {
+      // Safety check: if targetAngle is center (90°), force extreme angle
+      // This should never happen due to SCAN logic, but prevents stuck state
+      if (targetAngle == 90) {
+        targetAngle = (stuckCounter % 2 == 0) ? EXTREME_ANGLE_LEFT : EXTREME_ANGLE_RIGHT;
+      }
+      
       // Calculate required turn time based on angle difference from center
       int angleFromCenter = abs(targetAngle - 90);
       // Note: Integer division is exact since targetAngle is always a multiple of 45
@@ -467,7 +479,8 @@ void loop() {
         } else if (targetAngle > 90) {
           right(); // Turn right for angles 91-180
         } else {
-          Stop(); // Should not happen as center is heavily penalized
+          // Should never reach here due to safety check above
+          Stop();
         }
       } else {
         // Done turning, move to verification state
