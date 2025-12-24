@@ -115,6 +115,7 @@ void updateScroll() {
 #define CLEAR_THRESHOLD 30
 #define MIN_CLEAR_DISTANCE 40   // Minimum acceptable distance for path selection
 #define BACKUP_TIME 1200        // Time to back up after hitting obstacle (ms)
+#define SHORT_BACKUP_RATIO 2    // Divide BACKUP_TIME by this for short backup
 #define TURN_TIME_PER_45_DEG 400 // Estimated time to turn 45 degrees (ms)
 #define MAX_TURN_TIME 3000
 #define SCAN_CENTER_PENALTY 40  // Heavily penalize center angle (90°) to 40% of distance
@@ -157,13 +158,13 @@ bool autoMode = false;
 char driveCmd = 'S';
 
 /* ---------------- MOVE FORWARD STALL DETECTION ---------------- */
+#define INVALID_DISTANCE 999
+#define MOVE_CHECK_INTERVAL 200
+#define STALL_TIMEOUT 800
 unsigned long lastMoveCheck = 0;
 unsigned long stallStart = 0;
 bool isStalled = false;
 long previousDistance = INVALID_DISTANCE;
-#define INVALID_DISTANCE 999
-#define MOVE_CHECK_INTERVAL 200
-#define STALL_TIMEOUT 800
 bool useShortBackup = false;  // Flag for shorter backup after failed turn
 
 /* ---------------- SORT FUNCTION ---------------- */
@@ -323,7 +324,7 @@ void loop() {
 
     case MOVE_BACK: {
       back();
-      unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / 2) : BACKUP_TIME;
+      unsigned long backupDuration = useShortBackup ? (BACKUP_TIME / SHORT_BACKUP_RATIO) : BACKUP_TIME;
       if (now - stateStart > backupDuration) {
         autoState = SCAN;
         stateStart = now;
@@ -391,7 +392,8 @@ void loop() {
     case TURN_TO_CLEAR: {
       // Calculate required turn time based on angle difference from center
       int angleFromCenter = abs(targetAngle - 90);
-      // Fix: Use proper calculation to handle all angles correctly
+      // Note: Integer division is exact since targetAngle is always a multiple of 45
+      // (scan angles are 0, 45, 90, 135, 180)
       unsigned long requiredTurnTime = ((unsigned long)angleFromCenter * TURN_TIME_PER_45_DEG) / 45;
       
       // Turn in the appropriate direction for the calculated time
