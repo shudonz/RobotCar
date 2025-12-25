@@ -186,6 +186,14 @@ bool wasStalled = false;  // Physical stall detection (robot stuck despite senso
 int backupAttempts = 0;  // Track consecutive backup attempts to detect backing into obstacles
 int turnOnlyAttempts = 0;  // Track consecutive turn-without-backup cycles to detect stuck in turn loop
 
+/* ---------------- EXPLORATION / COVERAGE ENHANCEMENT ---------------- */
+// Track recently traveled directions to encourage exploration of new areas
+// Maps to scan angles: 0=left, 1=45-left, 2=center, 3=45-right, 4=right
+#define DIRECTION_MEMORY_SIZE 5
+#define DIRECTION_DECAY_TIME 15000  // Time in ms before a direction is considered "fresh" again (15 seconds)
+#define EXPLORATION_BONUS 300       // Bonus score percentage for unexplored directions (300% = 3x multiplier)
+unsigned long directionLastUsed[DIRECTION_MEMORY_SIZE] = {0, 0, 0, 0, 0};  // Timestamps of when each direction was last traveled
+
 /* ---------------- SORT FUNCTION ---------------- */
 void bubbleSort(long arr[], int n) {
   for (int i = 0; i < n - 1; i++) {
@@ -471,6 +479,14 @@ void loop() {
           scores[i] = scores[i] * SCAN_SIDE_BONUS / 100;
         }
         
+        // EXPLORATION BONUS: Favor directions that haven't been recently traveled
+        // This encourages the robot to explore new areas instead of repeating the same path
+        unsigned long timeSinceLastUse = now - directionLastUsed[i];
+        if (timeSinceLastUse > DIRECTION_DECAY_TIME) {
+          // Direction hasn't been used recently - give it a significant exploration bonus
+          scores[i] = scores[i] * EXPLORATION_BONUS / 100;
+        }
+        
         // Only consider directions with reasonable clearance
         if (distances[i] >= MIN_CLEAR_DISTANCE && scores[i] > maxScore) {
           maxScore = scores[i];
@@ -568,6 +584,13 @@ void loop() {
         long clearDistance = frontDistance();
         if (clearDistance > CLEAR_THRESHOLD) {
           // Path is clear, proceed forward
+          // Record this direction as recently used for exploration tracking
+          // Map targetAngle to direction index: 0°→0, 45°→1, 90°→2, 135°→3, 180°→4
+          int directionIndex = targetAngle / 45;
+          if (directionIndex >= 0 && directionIndex < DIRECTION_MEMORY_SIZE) {
+            directionLastUsed[directionIndex] = now;
+          }
+          
           autoState = MOVE_FORWARD;
           isStalled = false;  // Reset stall detection
           previousDistance = INVALID_DISTANCE;
