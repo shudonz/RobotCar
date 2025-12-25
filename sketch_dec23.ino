@@ -586,6 +586,7 @@ void loop() {
           // Path is clear, proceed forward
           // Record this direction as recently used for exploration tracking
           // Map targetAngle to direction index: 0°→0, 45°→1, 90°→2, 135°→3, 180°→4
+          // targetAngle is always one of the scan angles (0, 45, 90, 135, 180), so division by 45 works perfectly
           int directionIndex = targetAngle / 45;
           if (directionIndex >= 0 && directionIndex < DIRECTION_MEMORY_SIZE) {
             directionLastUsed[directionIndex] = now;
