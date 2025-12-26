@@ -481,10 +481,12 @@ void loop() {
         
         // EXPLORATION BONUS: Favor directions that haven't been recently traveled
         // This encourages the robot to explore new areas instead of repeating the same path
-        unsigned long timeSinceLastUse = now - directionLastUsed[i];
-        if (timeSinceLastUse > DIRECTION_DECAY_TIME) {
-          // Direction hasn't been used recently - give it a significant exploration bonus
-          scores[i] = scores[i] * EXPLORATION_BONUS / 100;
+        if (i != 2) {
+          unsigned long timeSinceLastUse = now - directionLastUsed[i];
+          if (timeSinceLastUse > DIRECTION_DECAY_TIME) {
+            // Direction hasn't been used recently - give it a significant exploration bonus
+            scores[i] = scores[i] * EXPLORATION_BONUS / 100;
+          }
         }
         
         // Only consider directions with reasonable clearance
