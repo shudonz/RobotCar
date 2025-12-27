@@ -1,4 +1,5 @@
 # RobotCar - Arduino 
+This code will run on a KS0470 4WD Robot Car Kit from Keyestudio.
 
 This code is an Arduino sketch for a robot car that incorporates multiple subsystems, including motor control, an ultrasonic sensor, an IR remote control, a servo motor, and an LED matrix display. Below is a full conceptual overview of how the code works and what each part of it does:
 
